@@ -1,0 +1,201 @@
+:root {
+  --bg: #FBF8F3;
+  --ink: #2A2823;
+  --ink-soft: #6B675F;
+  --line: #E4DFD5;
+  --home: #0E8F5F;
+  --home-soft: #DDF3E8;
+  --away: #DD6A11;
+  --away-soft: #FCE7D2;
+  --unset: #D8D3C6;
+  --accent: #5B57D6;
+  --card: #FFFFFF;
+  --selected: #2A2823;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+.sans { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+.wrap {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 20px 16px 40px;
+}
+
+.eyebrow {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 0 0 4px;
+}
+
+h1 { font-size: 26px; font-weight: 600; margin: 0 0 18px; letter-spacing: -0.01em; }
+
+.calendar-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+  margin-bottom: 22px;
+}
+
+.cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.cal-header .month-label { font-size: 17px; font-weight: 600; }
+.cal-nav { display: flex; gap: 6px; }
+.cal-nav button {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: 8px;
+  width: 30px; height: 30px;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--ink);
+}
+.cal-nav button:disabled { opacity: 0.4; cursor: default; }
+
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal-dow {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 11px;
+  color: var(--ink-soft);
+  text-align: center;
+  padding-bottom: 4px;
+}
+.cal-day {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  cursor: pointer;
+  position: relative;
+  color: var(--ink);
+}
+.cal-day.empty { visibility: hidden; cursor: default; }
+.cal-day.today { font-weight: 700; }
+.cal-day.selected { border-color: var(--selected); border-width: 2px; background: var(--home-soft); }
+.cal-day.has-data::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.selected-date-heading { font-size: 19px; font-weight: 600; margin: 0 0 4px; }
+.selected-date-sub {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px; color: var(--ink-soft); margin: 0 0 14px;
+}
+
+.profiles { display: flex; flex-direction: column; gap: 10px; }
+.profile-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 4px solid transparent;
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 2px rgba(42,40,35,0.04);
+  transition: border-color 0.2s, background 0.2s;
+}
+.profile-card.home { border-left-color: var(--home); background: linear-gradient(to right, var(--home-soft) 0%, var(--card) 55%); }
+.profile-card.away { border-left-color: var(--away); background: linear-gradient(to right, var(--away-soft) 0%, var(--card) 55%); }
+.profile-top { display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+.profile-name-row { display: flex; align-items: center; gap: 10px; }
+.profile-name { font-size: 17px; font-weight: 600; }
+.rename-btn {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 11px; color: var(--ink-soft);
+  background: none; border: none; text-decoration: underline;
+  cursor: pointer; padding: 0;
+}
+.badge {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px; font-weight: 700;
+  letter-spacing: 0.01em;
+  padding: 6px 15px; border-radius: 999px;
+}
+.badge.home { background: var(--home); color: #FFFFFF; box-shadow: 0 1px 4px rgba(14,143,95,0.35); }
+.badge.away { background: var(--away); color: #FFFFFF; box-shadow: 0 1px 4px rgba(221,106,17,0.35); }
+.badge.unset { background: var(--unset); color: var(--ink-soft); }
+.profile-meta {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px; color: var(--ink-soft);
+  margin-top: 8px; line-height: 1.5;
+}
+
+.edit-panel { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.status-toggle { display: flex; border-radius: 999px; background: var(--unset); padding: 4px; gap: 4px; margin-bottom: 12px; }
+.status-btn {
+  flex: 1; border: none; border-radius: 999px; padding: 12px 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 15px; font-weight: 600; cursor: pointer;
+  background: transparent; color: var(--ink-soft);
+  transition: background 0.2s, color 0.2s;
+}
+.status-btn.active.home { background: var(--home); color: white; }
+.status-btn.active.away { background: var(--away); color: white; }
+
+.return-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.return-row label {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px; color: var(--ink-soft); flex-shrink: 0;
+}
+.return-row input[type="time"] {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px; border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; background: var(--bg); color: var(--ink); flex: 1;
+}
+
+.save-btn, .cancel-btn {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px; font-weight: 600; border-radius: 8px; padding: 10px 0;
+  cursor: pointer; border: none;
+}
+.save-btn { background: var(--ink); color: white; flex: 1; }
+.save-btn:disabled { opacity: 0.6; cursor: default; }
+.cancel-btn { background: var(--bg); color: var(--ink-soft); border: 1px solid var(--line); flex: 1; }
+.edit-actions { display: flex; gap: 8px; }
+
+.clear-btn {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px; color: var(--ink-soft);
+  background: none; border: none; text-decoration: underline;
+  cursor: pointer; padding: 0; margin-top: 10px;
+}
+
+.note {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px; color: var(--ink-soft);
+  margin-top: 16px; line-height: 1.5;
+}
+.error-msg {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px; color: var(--away);
+  margin-top: 10px; text-align: center;
+}
+.saving-msg {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px; color: var(--ink-soft);
+  margin-top: 10px; text-align: center;
+}
+.loading-msg {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--ink-soft);
+  padding: 40px 0;
+  text-align: center;
+}
