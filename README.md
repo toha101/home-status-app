@@ -15,10 +15,12 @@ npm install
 
 ## 2. Create the database
 
+Vercel's old built-in "KV" product has been discontinued — databases now come through Vercel's Marketplace instead, typically backed by Upstash Redis. It works the same way for this app, just a different path to set up:
+
 1. Go to [vercel.com](https://vercel.com) and create a free account if you don't have one.
 2. Create a new project by importing this folder (see step 3), or first push it to a GitHub repo and import that.
-3. In your Vercel project, go to the **Storage** tab → **Create Database** → choose **KV** (powered by Upstash Redis, free tier is plenty for this).
-4. Connect the KV database to your project. Vercel will automatically add the required environment variables (`KV_REST_API_URL`, `KV_REST_API_TOKEN`, etc.) to your project.
+3. In your Vercel project, go to the **Storage** tab → **Create Database** (or **Browse Marketplace**, depending on what you see) → search for **Redis** → choose the **Upstash** integration.
+4. Follow the prompts to create a free Redis database and connect it to your project. Vercel will automatically add the required environment variables (`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`) to your project — you don't need to copy these yourself.
 
 ## 3. Deploy to Vercel
 
