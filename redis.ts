@@ -1,5 +1,9 @@
 import { Redis } from '@upstash/redis';
 
-// Vercel's Redis Marketplace integration (Upstash) injects these two
-// environment variables automatically once connected to the project.
-export const redis = Redis.fromEnv();
+// The Upstash-for-Redis integration on Vercel currently names its
+// REST credentials KV_REST_API_URL / KV_REST_API_TOKEN (legacy naming),
+// so we build the client from those directly instead of Redis.fromEnv().
+export const redis = new Redis({
+  url: process.env.KV_REST_API_URL!,
+  token: process.env.KV_REST_API_TOKEN!,
+});
