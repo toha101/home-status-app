@@ -43,6 +43,20 @@ function formatReturnTime(t: string | null) {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+function getOverdueLabel(returnTime: string | null, isToday: boolean, now: Date): string | null {
+  if (!returnTime || !isToday) return null;
+  const [h, m] = returnTime.split(':').map(Number);
+  const expected = new Date();
+  expected.setHours(h, m, 0, 0);
+  if (now <= expected) return null;
+  const diffMin = Math.round((now.getTime() - expected.getTime()) / 60000);
+  const hrs = Math.floor(diffMin / 60);
+  const mins = diffMin % 60;
+  if (hrs === 0) return `${mins}m past expected return`;
+  if (mins === 0) return `${hrs}h past expected return`;
+  return `${hrs}h ${mins}m past expected return`;
+}
+
 export default function Home() {
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -57,6 +71,19 @@ export default function Home() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draftStatus, setDraftStatus] = useState<Status>(null);
   const [draftReturnTime, setDraftReturnTime] = useState('');
+  const [now, setNow] = useState(() => new Date());
+
+  // Keeps "past expected return" wording fresh without a page reload.
+  // Paused while a card is being edited so it doesn't interrupt input.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setEditingIndex(current => {
+        if (current === null) setNow(new Date());
+        return current;
+      });
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const getDayEntry = useCallback((d: number): DayEntry => {
     return monthDays[dayKey(d)] || blankDay();
@@ -221,6 +248,11 @@ export default function Home() {
                       )}
                     </p>
                   )}
+
+                  {s.status === 'away' && s.returnTime && (() => {
+                    const overdueLabel = getOverdueLabel(s.returnTime, isSelToday, now);
+                    return overdueLabel ? <p className="overdue-note">{overdueLabel}</p> : null;
+                  })()}
 
                   {isEditing && (
                     <div className="edit-panel">
