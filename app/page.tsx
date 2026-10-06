@@ -1,13 +1,15 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 type Status = 'home' | 'away' | null;
+type Source = 'manual' | 'quick' | 'automatic' | null;
 
 interface DayStatus {
   status: Status;
   updatedAt: string | null;
   returnTime: string | null;
+  source?: Source;
 }
 
 type DayEntry = [DayStatus, DayStatus, DayStatus];
@@ -18,35 +20,42 @@ const DOW = ['S','M','T','W','T','F','S'];
 const WEEKDAY_FULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const DEFAULT_NAMES: [string, string, string] = ['Person 1', 'Person 2', 'Person 3'];
 
-const blankStatus = (): DayStatus => ({ status: null, updatedAt: null, returnTime: null });
+const blankStatus = (): DayStatus => ({ status: null, updatedAt: null, returnTime: null, source: null });
 const blankDay = (): DayEntry => [blankStatus(), blankStatus(), blankStatus()];
 
 function pad(n: number) { return n < 10 ? '0' + n : '' + n; }
 function dayKey(d: number) { return pad(d); }
 function monthKey(y: number, m: number) { return `${y}-${pad(m + 1)}`; }
 
-function formatTime(iso: string | null) {
+function formatClock(iso: string | null) {
   if (!iso) return '';
   const d = new Date(iso);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  if (sameDay) return 'today at ' + time;
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' at ' + time;
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function formatUpdated(iso: string | null, now: Date) {
+  if (!iso) return 'No recent update';
+  const d = new Date(iso);
+  const diffMin = Math.max(0, Math.floor((now.getTime() - d.getTime()) / 60000));
+  if (diffMin < 1) return 'Updated just now';
+  if (diffMin < 60) return `Updated ${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `Updated ${diffHr}h ago`;
+  return `Updated ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
 }
 
 function formatReturnTime(t: string | null) {
   if (!t) return '';
   const [h, m] = t.split(':').map(Number);
   const d = new Date();
-  d.setHours(h, m);
+  d.setHours(h, m, 0, 0);
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 function getOverdueLabel(returnTime: string | null, isToday: boolean, now: Date): string | null {
   if (!returnTime || !isToday) return null;
   const [h, m] = returnTime.split(':').map(Number);
-  const expected = new Date();
+  const expected = new Date(now);
   expected.setHours(h, m, 0, 0);
   if (now <= expected) return null;
   const diffMin = Math.round((now.getTime() - expected.getTime()) / 60000);
@@ -57,11 +66,18 @@ function getOverdueLabel(returnTime: string | null, isToday: boolean, now: Date)
   return `${hrs}h ${mins}m past expected return`;
 }
 
+function sourceLabel(source?: Source) {
+  if (source === 'automatic') return 'Automatic';
+  if (source === 'quick') return 'Quick update';
+  if (source === 'manual') return 'Manual';
+  return null;
+}
+
 export default function Home() {
-  const today = new Date();
-  const [viewYear, setViewYear] = useState(today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getMonth());
-  const [selectedDay, setSelectedDay] = useState(today.getDate());
+  const initialToday = useMemo(() => new Date(), []);
+  const [viewYear, setViewYear] = useState(initialToday.getFullYear());
+  const [viewMonth, setViewMonth] = useState(initialToday.getMonth());
+  const [selectedDay, setSelectedDay] = useState(initialToday.getDate());
 
   const [names, setNames] = useState<[string, string, string]>(DEFAULT_NAMES);
   const [monthDays, setMonthDays] = useState<MonthDays>({});
@@ -72,49 +88,74 @@ export default function Home() {
   const [draftStatus, setDraftStatus] = useState<Status>(null);
   const [draftReturnTime, setDraftReturnTime] = useState('');
   const [now, setNow] = useState(() => new Date());
+  const [myProfile, setMyProfile] = useState<number | null>(null);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [origin, setOrigin] = useState('');
+  const [timeZone, setTimeZone] = useState('UTC');
+  const [copied, setCopied] = useState<string | null>(null);
 
-  // Keeps "past expected return" wording fresh without a page reload.
-  // Paused while a card is being edited so it doesn't interrupt input.
+  const today = now;
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  const currentDay = today.getDate();
+  const isCurrentMonth = viewYear === currentYear && viewMonth === currentMonth;
+  const isSelToday = isCurrentMonth && selectedDay === currentDay;
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      setEditingIndex(current => {
-        if (current === null) setNow(new Date());
-        return current;
-      });
-    }, 60000);
+    setOrigin(window.location.origin);
+    setTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+    const stored = window.localStorage.getItem('home-status-my-profile');
+    if (stored !== null) {
+      const parsed = Number(stored);
+      if ([0, 1, 2].includes(parsed)) setMyProfile(parsed);
+    }
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(interval);
   }, []);
 
-  const getDayEntry = useCallback((d: number): DayEntry => {
-    return monthDays[dayKey(d)] || blankDay();
-  }, [monthDays]);
-
-  // Load profile names once
   useEffect(() => {
     fetch('/api/names')
       .then(r => r.json())
-      .then(d => { if (d.names) setNames(d.names); })
+      .then(d => { if (Array.isArray(d.names) && d.names.length === 3) setNames(d.names); })
       .catch(() => { /* keep defaults */ });
   }, []);
 
-  // Load whichever month is in view
+  const loadMonth = useCallback(async (y: number, m: number, showLoader = false) => {
+    if (showLoader) setMonthLoaded(false);
+    try {
+      const res = await fetch(`/api/month?key=${monthKey(y, m)}`, { cache: 'no-store' });
+      const d = await res.json();
+      setMonthDays(d.data || {});
+      setLoadError(false);
+    } catch {
+      setLoadError(true);
+    } finally {
+      if (showLoader) setMonthLoaded(true);
+    }
+  }, []);
+
   useEffect(() => {
-    let cancelled = false;
-    setMonthLoaded(false);
-    fetch(`/api/month?key=${monthKey(viewYear, viewMonth)}`)
-      .then(r => r.json())
-      .then(d => {
-        if (cancelled) return;
-        setMonthDays(d.data || {});
-        setMonthLoaded(true);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setMonthDays({});
-        setMonthLoaded(true);
-      });
-    return () => { cancelled = true; };
-  }, [viewYear, viewMonth]);
+    loadMonth(viewYear, viewMonth, true);
+  }, [viewYear, viewMonth, loadMonth]);
+
+  // Keep today's household dashboard fresh when other phones update it.
+  useEffect(() => {
+    if (!isCurrentMonth) return;
+    const interval = setInterval(() => {
+      if (editingIndex === null && !saving) loadMonth(viewYear, viewMonth, false);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [editingIndex, isCurrentMonth, loadMonth, saving, viewMonth, viewYear]);
+
+  const getDayEntry = useCallback((d: number): DayEntry => {
+    const existing = monthDays[dayKey(d)];
+    if (!existing || !Array.isArray(existing)) return blankDay();
+    return existing as DayEntry;
+  }, [monthDays]);
 
   async function persistMonth(nextMonthDays: MonthDays) {
     setSaving(true);
@@ -125,7 +166,7 @@ export default function Home() {
         body: JSON.stringify({ key: monthKey(viewYear, viewMonth), data: nextMonthDays }),
       });
       setLoadError(!res.ok);
-    } catch (e) {
+    } catch {
       setLoadError(true);
     }
     setSaving(false);
@@ -143,8 +184,13 @@ export default function Home() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ names: next }),
         });
-      } catch (e) { /* non-fatal */ }
+      } catch { /* non-fatal */ }
     }
+  }
+
+  function chooseMyProfile(index: number) {
+    setMyProfile(index);
+    window.localStorage.setItem('home-status-my-profile', String(index));
   }
 
   function openEdit(index: number) {
@@ -163,6 +209,7 @@ export default function Home() {
       status: draftStatus,
       updatedAt: new Date().toISOString(),
       returnTime: draftStatus === 'away' ? (draftReturnTime || null) : null,
+      source: 'manual',
     };
     const next = { ...monthDays, [key]: entry };
     setMonthDays(next);
@@ -182,22 +229,64 @@ export default function Home() {
     await persistMonth(next);
   }
 
+  async function quickUpdate(status: 'home' | 'away') {
+    if (myProfile === null) {
+      setSetupOpen(true);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/presence?person=${myProfile}&status=${status}&tz=${encodeURIComponent(timeZone)}&source=quick`, {
+        cache: 'no-store',
+      });
+      setLoadError(!res.ok);
+      if (res.ok) {
+        // Jump back to today so the result is immediately visible.
+        setViewYear(currentYear);
+        setViewMonth(currentMonth);
+        setSelectedDay(currentDay);
+        await loadMonth(currentYear, currentMonth, false);
+      }
+    } catch {
+      setLoadError(true);
+    }
+    setSaving(false);
+  }
+
   function goPrevMonth() {
     let y = viewYear, m = viewMonth - 1;
     if (m < 0) { m = 11; y -= 1; }
     setViewYear(y); setViewMonth(m); setSelectedDay(1); setEditingIndex(null);
   }
+
   function goNextMonth() {
     let y = viewYear, m = viewMonth + 1;
     if (m > 11) { m = 0; y += 1; }
     setViewYear(y); setViewMonth(m); setSelectedDay(1); setEditingIndex(null);
   }
 
+  function goToday() {
+    const d = new Date();
+    setViewYear(d.getFullYear());
+    setViewMonth(d.getMonth());
+    setSelectedDay(d.getDate());
+    setEditingIndex(null);
+  }
+
+  async function copyText(label: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(label);
+      window.setTimeout(() => setCopied(null), 1800);
+    } catch {
+      prompt('Copy this:', text);
+    }
+  }
+
   const firstOfMonth = new Date(viewYear, viewMonth, 1);
   const startDow = firstOfMonth.getDay();
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
-
   const cells: (number | null)[] = [
     ...Array(startDow).fill(null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
@@ -206,130 +295,248 @@ export default function Home() {
   const selDateObj = new Date(viewYear, viewMonth, selectedDay);
   const weekdayLabel = WEEKDAY_FULL[selDateObj.getDay()];
   const dateLabel = `${MONTH_NAMES[viewMonth]} ${selectedDay}`;
-  const isSelToday = isCurrentMonth && selectedDay === today.getDate();
+  const selectedEntry = getDayEntry(selectedDay);
+  const homeCount = selectedEntry.filter(s => s.status === 'home').length;
+  const knownCount = selectedEntry.filter(s => s.status !== null).length;
+
+  const arrivalUrl = myProfile !== null && origin
+    ? `${origin}/api/presence?person=${myProfile}&status=home&tz=${encodeURIComponent(timeZone)}&source=automatic`
+    : '';
+  const leaveUrl = myProfile !== null && origin
+    ? `${origin}/api/presence?person=${myProfile}&status=away&tz=${encodeURIComponent(timeZone)}&source=automatic`
+    : '';
 
   return (
-    <div className="wrap">
-      <p className="eyebrow">Household status</p>
-      <h1>Who&apos;s home</h1>
+    <main className="wrap">
+      <header className="hero">
+        <div>
+          <p className="eyebrow">Household presence</p>
+          <h1>Who&apos;s home?</h1>
+          <p className="hero-date">{weekdayLabel}, {dateLabel}{isSelToday ? ' · Today' : ''}</p>
+        </div>
+        <div className="summary-pill" aria-label={`${homeCount} people home`}>
+          <strong>{homeCount}</strong>
+          <span>{knownCount === 0 ? 'no updates' : `of 3 home`}</span>
+        </div>
+      </header>
 
-      {!monthLoaded ? (
-        <p className="loading-msg sans">Loading…</p>
-      ) : (
-        <>
-          <p className="selected-date-heading">{weekdayLabel}, {dateLabel}{isSelToday ? ' · Today' : ''}</p>
-          <p className="selected-date-sub">Status for this day only — pick another date and this resets.</p>
+      <section className="profiles" aria-label="Household status">
+        {[0, 1, 2].map(index => {
+          const name = names[index];
+          const s = selectedEntry[index] || blankStatus();
+          const isEditing = editingIndex === index;
+          const badgeClass = s.status === 'home' ? 'home' : s.status === 'away' ? 'away' : 'unset';
+          const source = sourceLabel(s.source);
+          const overdue = s.status === 'away' ? getOverdueLabel(s.returnTime, isSelToday, now) : null;
 
-          <div className="profiles">
-            {[0, 1, 2].map(index => {
-              const name = names[index];
-              const s = getDayEntry(selectedDay)[index];
-              const badgeClass = s.status === 'home' ? 'home' : s.status === 'away' ? 'away' : 'unset';
-              const badgeText = s.status === 'home' ? 'Home' : s.status === 'away' ? 'Away' : 'Not set';
-              const isEditing = editingIndex === index;
+          return (
+            <article className={`profile-card ${s.status || 'unset'}`} key={index}>
+              <button className="profile-main" onClick={() => isEditing ? closeEdit() : openEdit(index)}>
+                <span className={`presence-dot ${badgeClass}`} aria-hidden="true" />
+                <span className="profile-copy">
+                  <span className="profile-name-line">
+                    <span className="profile-name">{name}</span>
+                    {myProfile === index && <span className="me-chip">this phone</span>}
+                  </span>
+                  <span className="profile-status-line">
+                    {s.status === 'home' && <>Home {s.updatedAt && <span>· since {formatClock(s.updatedAt)}</span>}</>}
+                    {s.status === 'away' && <>Away {s.updatedAt && <span>· since {formatClock(s.updatedAt)}</span>}</>}
+                    {!s.status && <>Status not set</>}
+                  </span>
+                  <span className="profile-detail-line">
+                    {s.status && s.updatedAt ? formatUpdated(s.updatedAt, now) : 'Tap to update'}
+                    {source ? ` · ${source}` : ''}
+                  </span>
+                  {s.status === 'away' && s.returnTime && (
+                    <span className="return-line">Back around {formatReturnTime(s.returnTime)}</span>
+                  )}
+                  {overdue && <span className="overdue-note">{overdue}</span>}
+                </span>
+                <span className={`status-badge ${badgeClass}`}>
+                  {s.status === 'home' ? 'Home' : s.status === 'away' ? 'Away' : 'Unknown'}
+                </span>
+              </button>
 
-              return (
-                <div className={`profile-card ${s.status || ''}`} key={index}>
-                  <div className="profile-top" onClick={() => (isEditing ? closeEdit() : openEdit(index))}>
-                    <div className="profile-name-row">
-                      <span className="profile-name">{name}</span>
-                      <button className="rename-btn" onClick={(e) => { e.stopPropagation(); renameProfile(index); }}>
-                        rename
-                      </button>
-                    </div>
-                    <span className={`badge ${badgeClass}`}>{badgeText}</span>
+              <div className="card-tools">
+                <button className="rename-btn" onClick={() => renameProfile(index)}>rename</button>
+                <button className="device-btn" onClick={() => chooseMyProfile(index)}>
+                  {myProfile === index ? 'This is my profile' : 'Use on this phone'}
+                </button>
+              </div>
+
+              {isEditing && (
+                <div className="edit-panel">
+                  <p className="edit-title">Manual override for {name}</p>
+                  <div className="status-toggle">
+                    <button
+                      className={`status-btn ${draftStatus === 'home' ? 'active home' : ''}`}
+                      onClick={() => setDraftStatus('home')}
+                    >I&apos;m home</button>
+                    <button
+                      className={`status-btn ${draftStatus === 'away' ? 'active away' : ''}`}
+                      onClick={() => setDraftStatus('away')}
+                    >I&apos;m away</button>
                   </div>
 
-                  {s.status && s.updatedAt && (
-                    <p className="profile-meta">
-                      {name} marked {s.status === 'home' ? 'home' : 'away'} — {formatTime(s.updatedAt)}
-                      {s.status === 'away' && s.returnTime && (
-                        <><br />Back around {formatReturnTime(s.returnTime)}</>
-                      )}
-                    </p>
-                  )}
-
-                  {s.status === 'away' && s.returnTime && (() => {
-                    const overdueLabel = getOverdueLabel(s.returnTime, isSelToday, now);
-                    return overdueLabel ? <p className="overdue-note">{overdueLabel}</p> : null;
-                  })()}
-
-                  {isEditing && (
-                    <div className="edit-panel">
-                      <div className="status-toggle">
-                        <button
-                          className={`status-btn ${draftStatus === 'home' ? 'active home' : ''}`}
-                          onClick={() => setDraftStatus('home')}
-                        >Home</button>
-                        <button
-                          className={`status-btn ${draftStatus === 'away' ? 'active away' : ''}`}
-                          onClick={() => setDraftStatus('away')}
-                        >Away</button>
-                      </div>
-                      {draftStatus === 'away' && (
-                        <div className="return-row">
-                          <label htmlFor={`return-time-${index}`}>Back around</label>
-                          <input
-                            type="time"
-                            id={`return-time-${index}`}
-                            value={draftReturnTime}
-                            onChange={(e) => setDraftReturnTime(e.target.value)}
-                          />
-                        </div>
-                      )}
-                      <div className="edit-actions">
-                        <button className="cancel-btn" onClick={closeEdit}>Cancel</button>
-                        <button className="save-btn" disabled={saving} onClick={() => saveEdit(index)}>
-                          {saving ? 'Saving…' : 'Save'}
-                        </button>
-                      </div>
-                      {s.status && (
-                        <button className="clear-btn" onClick={() => clearEntry(index)}>Clear this entry</button>
-                      )}
+                  {draftStatus === 'away' && (
+                    <div className="return-row">
+                      <label htmlFor={`return-time-${index}`}>Back around</label>
+                      <input
+                        type="time"
+                        id={`return-time-${index}`}
+                        value={draftReturnTime}
+                        onChange={(e) => setDraftReturnTime(e.target.value)}
+                      />
                     </div>
                   )}
+
+                  <div className="edit-actions">
+                    <button className="cancel-btn" onClick={closeEdit}>Cancel</button>
+                    <button className="save-btn" disabled={saving || draftStatus === null} onClick={() => saveEdit(index)}>
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+
+                  {s.status && (
+                    <button className="clear-btn" onClick={() => clearEntry(index)}>Clear this entry</button>
+                  )}
                 </div>
-              );
-            })}
-          </div>
+              )}
+            </article>
+          );
+        })}
+      </section>
 
-          {loadError && <p className="error-msg">Could not save — check your connection and try again.</p>}
-          {saving && <p className="saving-msg">Saving…</p>}
-        </>
-      )}
-
-      <div className="calendar-card">
-        <div className="cal-header">
-          <div className="month-label">{MONTH_NAMES[viewMonth]} {viewYear}</div>
-          <div className="cal-nav">
-            <button onClick={goPrevMonth} disabled={!monthLoaded}>‹</button>
-            <button onClick={goNextMonth} disabled={!monthLoaded}>›</button>
+      <section className="quick-card">
+        <div className="section-heading-row">
+          <div>
+            <p className="section-kicker">Fastest manual option</p>
+            <h2>One-tap status</h2>
           </div>
+          <button className="text-btn" onClick={() => setSetupOpen(!setupOpen)}>
+            {setupOpen ? 'Hide setup' : 'Automatic setup'}
+          </button>
         </div>
-        <div className="cal-grid">
-          {DOW.map((d, i) => <div className="cal-dow" key={i}>{d}</div>)}
-          {cells.map((d, i) => {
-            if (d === null) return <div className="cal-day empty" key={i} />;
-            const isToday = isCurrentMonth && d === today.getDate();
-            const isSelected = d === selectedDay;
-            const hasData = monthLoaded && !!monthDays[dayKey(d)];
-            const cls = ['cal-day', isToday && 'today', isSelected && 'selected', hasData && 'has-data']
-              .filter(Boolean).join(' ');
-            return (
-              <div className={cls} key={i} onClick={() => { setSelectedDay(d); setEditingIndex(null); }}>
-                {d}
+
+        {myProfile === null ? (
+          <div className="choose-me">
+            <p>First, tell this phone who it belongs to.</p>
+            <div className="profile-picker">
+              {names.map((name, index) => (
+                <button key={index} onClick={() => chooseMyProfile(index)}>{name}</button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="quick-person">This phone: <strong>{names[myProfile]}</strong></p>
+            <div className="quick-actions">
+              <button className="quick-home" disabled={saving} onClick={() => quickUpdate('home')}>⌂ I&apos;m home</button>
+              <button className="quick-away" disabled={saving} onClick={() => quickUpdate('away')}>↗ I&apos;m leaving</button>
+            </div>
+          </>
+        )}
+
+        {setupOpen && (
+          <div className="automation-panel">
+            <div className="automation-head">
+              <div>
+                <p className="section-kicker">Hands-free mode</p>
+                <h3>Automatic arrival &amp; leaving</h3>
               </div>
-            );
-          })}
-        </div>
-      </div>
+              <span className="privacy-chip">No live map</span>
+            </div>
 
-      {monthLoaded && (
-        <p className="note">
-          Tap a date above to check or set that day&apos;s status. Days with a small dot already have entries saved.
-          Tap &quot;rename&quot; once to put in real names — that applies to every day.
-        </p>
-      )}
-    </div>
+            <p className="automation-copy">
+              Your phone can call this app automatically when you arrive at or leave home. The app receives only “home” or “away” — not a live GPS trail.
+            </p>
+
+            {myProfile === null ? (
+              <p className="automation-warning">Choose “This phone” above first so I can generate the correct links.</p>
+            ) : (
+              <>
+                <div className="automation-links">
+                  <div className="automation-link-row">
+                    <div>
+                      <strong>Arrival link</strong>
+                      <small>Marks {names[myProfile]} home</small>
+                    </div>
+                    <button onClick={() => copyText('arrival', arrivalUrl)}>{copied === 'arrival' ? 'Copied' : 'Copy'}</button>
+                  </div>
+                  <div className="automation-link-row">
+                    <div>
+                      <strong>Leaving link</strong>
+                      <small>Marks {names[myProfile]} away</small>
+                    </div>
+                    <button onClick={() => copyText('leave', leaveUrl)}>{copied === 'leave' ? 'Copied' : 'Copy'}</button>
+                  </div>
+                </div>
+
+                <ol className="shortcut-steps">
+                  <li>Open <strong>Shortcuts</strong> on the iPhone and create a Personal Automation for <strong>Arrive</strong> at your home.</li>
+                  <li>Add the action <strong>Get Contents of URL</strong>, paste the Arrival link, and set the automation to run automatically / immediately if your iPhone offers that option.</li>
+                  <li>Create a second Personal Automation for <strong>Leave</strong>, using the Leaving link.</li>
+                  <li>Repeat once on each household member&apos;s phone, choosing that person&apos;s profile first.</li>
+                </ol>
+                <p className="automation-footnote">Timezone used for these links: <strong>{timeZone}</strong></p>
+              </>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="history-section">
+        <button className="history-toggle" onClick={() => setHistoryOpen(!historyOpen)}>
+          <span>
+            <span className="section-kicker">Optional</span>
+            <strong>History &amp; calendar</strong>
+          </span>
+          <span aria-hidden="true">{historyOpen ? '−' : '+'}</span>
+        </button>
+
+        {historyOpen && (
+          <div className="calendar-card">
+            <div className="cal-header">
+              <div>
+                <div className="month-label">{MONTH_NAMES[viewMonth]} {viewYear}</div>
+                {!isSelToday && <button className="today-link" onClick={goToday}>Back to today</button>}
+              </div>
+              <div className="cal-nav">
+                <button onClick={goPrevMonth} disabled={!monthLoaded} aria-label="Previous month">‹</button>
+                <button onClick={goNextMonth} disabled={!monthLoaded} aria-label="Next month">›</button>
+              </div>
+            </div>
+
+            {!monthLoaded ? (
+              <p className="loading-msg">Loading…</p>
+            ) : (
+              <div className="cal-grid">
+                {DOW.map((d, i) => <div className="cal-dow" key={i}>{d}</div>)}
+                {cells.map((d, i) => {
+                  if (d === null) return <div className="cal-day empty" key={i} />;
+                  const isToday = isCurrentMonth && d === currentDay;
+                  const isSelected = d === selectedDay;
+                  const hasData = !!monthDays[dayKey(d)];
+                  const cls = ['cal-day', isToday && 'today', isSelected && 'selected', hasData && 'has-data']
+                    .filter(Boolean).join(' ');
+                  return (
+                    <button className={cls} key={i} onClick={() => { setSelectedDay(d); setEditingIndex(null); }}>
+                      {d}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {loadError && <p className="error-msg">Could not sync with the shared database. Check your connection and try again.</p>}
+      {saving && <p className="saving-msg">Saving…</p>}
+
+      <footer className="footer-note">
+        Status updates are shared through your existing Redis database. Automatic mode records Home/Away, not a live location trail.
+      </footer>
+    </main>
   );
 }

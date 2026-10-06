@@ -1,0 +1,14 @@
+.gitignore
+PROJECT_STRUCTURE.txt
+README.md
+app/api/month/route.ts
+app/api/names/route.ts
+app/api/presence/route.ts
+app/globals.css
+app/layout.tsx
+app/manifest.ts
+app/page.tsx
+lib/redis.ts
+next.config.js
+package.json
+tsconfig.json

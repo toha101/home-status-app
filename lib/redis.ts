@@ -1,9 +1,15 @@
 import { Redis } from '@upstash/redis';
 
-// The Upstash-for-Redis integration on Vercel currently names its
-// REST credentials KV_REST_API_URL / KV_REST_API_TOKEN (legacy naming),
-// so we build the client from those directly instead of Redis.fromEnv().
-export const redis = new Redis({
-  url: process.env.KV_REST_API_URL!,
-  token: process.env.KV_REST_API_TOKEN!,
-});
+// Supports both the current Upstash/Vercel Marketplace variable names
+// and the older Vercel KV variable names, so an existing deployment can
+// keep using the database it already has connected.
+const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+
+if (!url || !token) {
+  throw new Error(
+    'Redis environment variables are missing. Expected UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN or KV_REST_API_URL/KV_REST_API_TOKEN.'
+  );
+}
+
+export const redis = new Redis({ url, token });
