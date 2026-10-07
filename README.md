@@ -86,3 +86,9 @@ The website receives only the profile's Home/Away update. It does not store a co
 ## Security note
 
 This household version does not include account sign-in. Keep the deployment URL and automation links private.
+
+## V3: persistent live presence
+
+This version fixes the midnight rollover issue. The live dashboard now reads from a separate `current-presence` Redis record, so a person remains Home or Away until their phone or a manual override reports a new state. Daily month records are still kept for calendar/history.
+
+The new `/api/current` endpoint automatically migrates the latest known status from recent history on first load, so existing data can carry forward without a manual reset.

@@ -33,6 +33,18 @@ function formatClock(iso: string | null) {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+function formatSince(iso: string | null, now: Date) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const sameDay = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (sameDay) return time;
+  if (d.toDateString() === yesterday.toDateString()) return `yesterday at ${time}`;
+  return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${time}`;
+}
+
 function formatUpdated(iso: string | null, now: Date) {
   if (!iso) return 'No recent update';
   const d = new Date(iso);
@@ -81,6 +93,7 @@ export default function Home() {
 
   const [names, setNames] = useState<[string, string, string]>(DEFAULT_NAMES);
   const [monthDays, setMonthDays] = useState<MonthDays>({});
+  const [currentPresence, setCurrentPresence] = useState<DayEntry>(blankDay());
   const [monthLoaded, setMonthLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -124,6 +137,19 @@ export default function Home() {
       .catch(() => { /* keep defaults */ });
   }, []);
 
+  const loadCurrent = useCallback(async () => {
+    try {
+      const res = await fetch('/api/current', { cache: 'no-store' });
+      const d = await res.json();
+      if (Array.isArray(d.data) && d.data.length === 3) {
+        setCurrentPresence(d.data as DayEntry);
+        setLoadError(false);
+      }
+    } catch {
+      setLoadError(true);
+    }
+  }, []);
+
   const loadMonth = useCallback(async (y: number, m: number, showLoader = false) => {
     if (showLoader) setMonthLoaded(false);
     try {
@@ -142,14 +168,20 @@ export default function Home() {
     loadMonth(viewYear, viewMonth, true);
   }, [viewYear, viewMonth, loadMonth]);
 
-  // Keep today's household dashboard fresh when other phones update it.
   useEffect(() => {
-    if (!isCurrentMonth) return;
+    loadCurrent();
+  }, [loadCurrent]);
+
+  // Keep the live household dashboard fresh when other phones update it.
+  useEffect(() => {
     const interval = setInterval(() => {
-      if (editingIndex === null && !saving) loadMonth(viewYear, viewMonth, false);
+      if (editingIndex === null && !saving) {
+        loadCurrent();
+        if (isCurrentMonth) loadMonth(viewYear, viewMonth, false);
+      }
     }, 15000);
     return () => clearInterval(interval);
-  }, [editingIndex, isCurrentMonth, loadMonth, saving, viewMonth, viewYear]);
+  }, [editingIndex, isCurrentMonth, loadCurrent, loadMonth, saving, viewMonth, viewYear]);
 
   const getDayEntry = useCallback((d: number): DayEntry => {
     const existing = monthDays[dayKey(d)];
@@ -194,7 +226,7 @@ export default function Home() {
   }
 
   function openEdit(index: number) {
-    const entry = getDayEntry(selectedDay)[index];
+    const entry = currentPresence[index] || blankStatus();
     setEditingIndex(index);
     setDraftStatus(entry.status);
     setDraftReturnTime(entry.returnTime || '');
@@ -203,30 +235,47 @@ export default function Home() {
   function closeEdit() { setEditingIndex(null); }
 
   async function saveEdit(index: number) {
-    const key = dayKey(selectedDay);
-    const entry: DayEntry = monthDays[key] ? [...monthDays[key]] as DayEntry : blankDay();
-    entry[index] = {
-      status: draftStatus,
-      updatedAt: new Date().toISOString(),
-      returnTime: draftStatus === 'away' ? (draftReturnTime || null) : null,
-      source: 'manual',
-    };
-    const next = { ...monthDays, [key]: entry };
-    setMonthDays(next);
-    setEditingIndex(null);
-    await persistMonth(next);
+    setSaving(true);
+    try {
+      const res = await fetch('/api/current', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          person: index,
+          status: draftStatus,
+          returnTime: draftStatus === 'away' ? (draftReturnTime || null) : null,
+          source: 'manual',
+          timeZone,
+        }),
+      });
+      setLoadError(!res.ok);
+      if (res.ok) {
+        setEditingIndex(null);
+        await Promise.all([loadCurrent(), loadMonth(currentYear, currentMonth, false)]);
+      }
+    } catch {
+      setLoadError(true);
+    }
+    setSaving(false);
   }
 
   async function clearEntry(index: number) {
-    const key = dayKey(selectedDay);
-    const entry: DayEntry = monthDays[key] ? [...monthDays[key]] as DayEntry : blankDay();
-    entry[index] = blankStatus();
-    const next = { ...monthDays };
-    if (entry.some(s => s.status)) next[key] = entry;
-    else delete next[key];
-    setMonthDays(next);
-    setEditingIndex(null);
-    await persistMonth(next);
+    setSaving(true);
+    try {
+      const res = await fetch('/api/current', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person: index, status: null, source: 'manual', timeZone }),
+      });
+      setLoadError(!res.ok);
+      if (res.ok) {
+        setEditingIndex(null);
+        await Promise.all([loadCurrent(), loadMonth(currentYear, currentMonth, false)]);
+      }
+    } catch {
+      setLoadError(true);
+    }
+    setSaving(false);
   }
 
   async function quickUpdate(status: 'home' | 'away') {
@@ -246,7 +295,7 @@ export default function Home() {
         setViewYear(currentYear);
         setViewMonth(currentMonth);
         setSelectedDay(currentDay);
-        await loadMonth(currentYear, currentMonth, false);
+        await Promise.all([loadCurrent(), loadMonth(currentYear, currentMonth, false)]);
       }
     } catch {
       setLoadError(true);
@@ -292,12 +341,12 @@ export default function Home() {
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ];
 
-  const selDateObj = new Date(viewYear, viewMonth, selectedDay);
-  const weekdayLabel = WEEKDAY_FULL[selDateObj.getDay()];
-  const dateLabel = `${MONTH_NAMES[viewMonth]} ${selectedDay}`;
-  const selectedEntry = getDayEntry(selectedDay);
-  const homeCount = selectedEntry.filter(s => s.status === 'home').length;
-  const knownCount = selectedEntry.filter(s => s.status !== null).length;
+  const liveDateObj = new Date(currentYear, currentMonth, currentDay);
+  const weekdayLabel = WEEKDAY_FULL[liveDateObj.getDay()];
+  const dateLabel = `${MONTH_NAMES[currentMonth]} ${currentDay}`;
+  const selectedEntry = currentPresence;
+  const homeCount = currentPresence.filter(s => s.status === 'home').length;
+  const knownCount = currentPresence.filter(s => s.status !== null).length;
 
   const arrivalUrl = myProfile !== null && origin
     ? `${origin}/api/presence?person=${myProfile}&status=home&tz=${encodeURIComponent(timeZone)}&source=automatic`
@@ -312,7 +361,7 @@ export default function Home() {
         <div>
           <p className="eyebrow">Household presence</p>
           <h1>Who&apos;s home?</h1>
-          <p className="hero-date">{weekdayLabel}, {dateLabel}{isSelToday ? ' · Today' : ''}</p>
+          <p className="hero-date">{weekdayLabel}, {dateLabel} · Today</p>
         </div>
         <div className="summary-pill" aria-label={`${homeCount} people home`}>
           <strong>{homeCount}</strong>
@@ -327,7 +376,7 @@ export default function Home() {
           const isEditing = editingIndex === index;
           const badgeClass = s.status === 'home' ? 'home' : s.status === 'away' ? 'away' : 'unset';
           const source = sourceLabel(s.source);
-          const overdue = s.status === 'away' ? getOverdueLabel(s.returnTime, isSelToday, now) : null;
+          const overdue = s.status === 'away' ? getOverdueLabel(s.returnTime, true, now) : null;
 
           return (
             <article className={`profile-card ${s.status || 'unset'}`} key={index}>
@@ -339,8 +388,8 @@ export default function Home() {
                     {myProfile === index && <span className="me-chip">this phone</span>}
                   </span>
                   <span className="profile-status-line">
-                    {s.status === 'home' && <>Home {s.updatedAt && <span>· since {formatClock(s.updatedAt)}</span>}</>}
-                    {s.status === 'away' && <>Away {s.updatedAt && <span>· since {formatClock(s.updatedAt)}</span>}</>}
+                    {s.status === 'home' && <>Home {s.updatedAt && <span>· since {formatSince(s.updatedAt, now)}</span>}</>}
+                    {s.status === 'away' && <>Away {s.updatedAt && <span>· since {formatSince(s.updatedAt, now)}</span>}</>}
                     {!s.status && <>Status not set</>}
                   </span>
                   <span className="profile-detail-line">
@@ -398,7 +447,7 @@ export default function Home() {
                   </div>
 
                   {s.status && (
-                    <button className="clear-btn" onClick={() => clearEntry(index)}>Clear this entry</button>
+                    <button className="clear-btn" onClick={() => clearEntry(index)}>Clear current status</button>
                   )}
                 </div>
               )}

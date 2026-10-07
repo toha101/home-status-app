@@ -73,6 +73,12 @@ async function applyPresence(person: number, status: Status, requestedTimeZone?:
   monthDays[local.day] = entry;
   await redis.set(redisKey, monthDays);
 
+  // Keep a separate live snapshot so the dashboard does not reset at midnight.
+  const currentKey = 'current-presence';
+  const current = (await redis.get<DayEntry>(currentKey)) || blankDay();
+  current[person] = entry[person];
+  await redis.set(currentKey, current);
+
   return {
     ok: true as const,
     person,
