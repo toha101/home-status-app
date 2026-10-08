@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 type Status = 'home' | 'away' | null;
 type Source = 'manual' | 'quick' | 'automatic' | null;
+type Theme = 'light' | 'dark' | 'pink' | 'ocean';
 
 interface DayStatus {
   status: Status;
@@ -107,6 +108,7 @@ export default function Home() {
   const [origin, setOrigin] = useState('');
   const [timeZone, setTimeZone] = useState('UTC');
   const [copied, setCopied] = useState<string | null>(null);
+  const [theme, setTheme] = useState<Theme>('light');
 
   const today = now;
   const currentYear = today.getFullYear();
@@ -123,7 +125,19 @@ export default function Home() {
       const parsed = Number(stored);
       if ([0, 1, 2].includes(parsed)) setMyProfile(parsed);
     }
+
+    const storedTheme = window.localStorage.getItem('home-status-theme');
+    const allowedThemes: Theme[] = ['light', 'dark', 'pink', 'ocean'];
+    const nextTheme = allowedThemes.includes(storedTheme as Theme) ? storedTheme as Theme : 'light';
+    setTheme(nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
   }, []);
+
+  function changeTheme(nextTheme: Theme) {
+    setTheme(nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
+    window.localStorage.setItem('home-status-theme', nextTheme);
+  }
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60000);
@@ -358,14 +372,25 @@ export default function Home() {
   return (
     <main className="wrap">
       <header className="hero">
-        <div>
+        <div className="hero-copy">
           <p className="eyebrow">Household presence</p>
           <h1>Who&apos;s home?</h1>
           <p className="hero-date">{weekdayLabel}, {dateLabel} · Today</p>
         </div>
-        <div className="summary-pill" aria-label={`${homeCount} people home`}>
-          <strong>{homeCount}</strong>
-          <span>{knownCount === 0 ? 'no updates' : `of 3 home`}</span>
+        <div className="hero-side">
+          <div className="summary-pill" aria-label={`${homeCount} people home`}>
+            <strong>{homeCount}</strong>
+            <span>{knownCount === 0 ? 'no updates' : `of 3 home`}</span>
+          </div>
+          <label className="theme-control">
+            <span>Theme</span>
+            <select value={theme} onChange={(e) => changeTheme(e.target.value as Theme)} aria-label="Choose color theme">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="pink">Pink</option>
+              <option value="ocean">Ocean</option>
+            </select>
+          </label>
         </div>
       </header>
 

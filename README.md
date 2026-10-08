@@ -2,6 +2,11 @@
 
 This is the complete replacement project with the folder structure already corrected for Next.js/Vercel.
 
+## Themes
+
+V4 adds a theme selector in the top-right of the live dashboard. Each device remembers its own choice in localStorage. Included themes: Light, Dark, Pink, and Ocean. The entire interface uses theme variables, including cards, forms, calendar, automation setup, status chips, borders, and text, so content remains readable when switching themes.
+
+
 ## IMPORTANT: keep this exact folder structure
 
 ```text
@@ -87,7 +92,7 @@ The website receives only the profile's Home/Away update. It does not store a co
 
 This household version does not include account sign-in. Keep the deployment URL and automation links private.
 
-## V3: persistent live presence
+## V4: persistent live presence
 
 This version fixes the midnight rollover issue. The live dashboard now reads from a separate `current-presence` Redis record, so a person remains Home or Away until their phone or a manual override reports a new state. Daily month records are still kept for calendar/history.
 

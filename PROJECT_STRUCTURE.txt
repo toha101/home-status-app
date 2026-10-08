@@ -1,14 +1,17 @@
-.gitignore
-PROJECT_STRUCTURE.txt
-README.md
-app/api/month/route.ts
-app/api/names/route.ts
-app/api/presence/route.ts
-app/globals.css
-app/layout.tsx
-app/manifest.ts
-app/page.tsx
-lib/redis.ts
-next.config.js
-package.json
-tsconfig.json
+home-status-app/
+├── app/
+│   ├── api/
+│   │   ├── current/route.ts
+│   │   ├── month/route.ts
+│   │   ├── names/route.ts
+│   │   └── presence/route.ts
+│   ├── globals.css
+│   ├── layout.tsx
+│   ├── manifest.ts
+│   └── page.tsx
+├── lib/redis.ts
+├── .gitignore
+├── next.config.js
+├── package.json
+├── README.md
+└── tsconfig.json
